@@ -16,7 +16,9 @@ import type {
   User, 
   PartCategory, 
   PartCondition,
-  CreateBuyerInquiryInput 
+  CreateBuyerInquiryInput,
+  FinancingOption,
+  CreateFinancingApplicationInput
 } from '../../../server/src/schema';
 
 interface AutoPartSearchProps {
@@ -41,6 +43,16 @@ export function AutoPartSearch({ currentUser }: AutoPartSearchProps) {
   const [selectedPart, setSelectedPart] = useState<AutoPart | null>(null);
   const [inquiryMessage, setInquiryMessage] = useState('');
   const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false);
+
+  // Financing state
+  const [selectedPartForFinancing, setSelectedPartForFinancing] = useState<AutoPart | null>(null);
+  const [financingOptions, setFinancingOptions] = useState<FinancingOption[]>([]);
+  const [selectedFinancingOption, setSelectedFinancingOption] = useState<number | null>(null);
+  const [requestedAmount, setRequestedAmount] = useState<string>('');
+  const [applicationData, setApplicationData] = useState('');
+  const [isLoadingFinancingOptions, setIsLoadingFinancingOptions] = useState(false);
+  const [isSubmittingFinancingApplication, setIsSubmittingFinancingApplication] = useState(false);
+  const [financingModalOpen, setFinancingModalOpen] = useState(false);
 
   const searchParts = useCallback(async () => {
     setIsLoading(true);
@@ -188,6 +200,70 @@ export function AutoPartSearch({ currentUser }: AutoPartSearchProps) {
     } finally {
       setIsSubmittingInquiry(false);
     }
+  };
+
+  const loadFinancingOptions = useCallback(async () => {
+    setIsLoadingFinancingOptions(true);
+    try {
+      const options = await trpc.getFinancingOptions.query();
+      setFinancingOptions(options);
+    } catch (error) {
+      console.error('Failed to load financing options:', error);
+      alert('Failed to load financing options. Please try again.');
+    } finally {
+      setIsLoadingFinancingOptions(false);
+    }
+  }, []);
+
+  const handleFinanceClick = (part: AutoPart) => {
+    setSelectedPartForFinancing(part);
+    setRequestedAmount(part.price.toString());
+    setApplicationData('');
+    setSelectedFinancingOption(null);
+    setFinancingModalOpen(true);
+    loadFinancingOptions();
+  };
+
+  const handleFinancingApplication = async () => {
+    if (!selectedPartForFinancing || !selectedFinancingOption || !requestedAmount || !applicationData.trim()) {
+      alert('Please fill in all required fields.');
+      return;
+    }
+
+    setIsSubmittingFinancingApplication(true);
+    try {
+      const applicationInput: CreateFinancingApplicationInput = {
+        buyer_id: currentUser.id,
+        part_id: selectedPartForFinancing.id,
+        financing_option_id: selectedFinancingOption,
+        requested_amount: parseFloat(requestedAmount),
+        application_data: applicationData.trim()
+      };
+
+      await trpc.createFinancingApplication.mutate(applicationInput);
+      
+      // Reset and close modal
+      setSelectedPartForFinancing(null);
+      setRequestedAmount('');
+      setApplicationData('');
+      setSelectedFinancingOption(null);
+      setFinancingModalOpen(false);
+      
+      alert('Financing application submitted successfully! You will be notified of the decision.');
+    } catch (error) {
+      console.error('Failed to submit financing application:', error);
+      alert('Failed to submit financing application. Please try again.');
+    } finally {
+      setIsSubmittingFinancingApplication(false);
+    }
+  };
+
+  const resetFinancingModal = () => {
+    setSelectedPartForFinancing(null);
+    setRequestedAmount('');
+    setApplicationData('');
+    setSelectedFinancingOption(null);
+    setFinancingModalOpen(false);
   };
 
   const getConditionColor = (condition: PartCondition) => {
@@ -510,7 +586,11 @@ export function AutoPartSearch({ currentUser }: AutoPartSearchProps) {
                     )}
                     
                     {currentUser.user_type === 'buyer' && part.price > 1000 && (
-                      <Button variant="outline" className="flex-1">
+                      <Button 
+                        variant="outline" 
+                        className="flex-1"
+                        onClick={() => handleFinanceClick(part)}
+                      >
                         💰 Finance
                       </Button>
                     )}
@@ -521,6 +601,175 @@ export function AutoPartSearch({ currentUser }: AutoPartSearchProps) {
           </div>
         )}
       </div>
+
+      {/* Financing Application Modal */}
+      <Dialog open={financingModalOpen} onOpenChange={setFinancingModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>💰 Apply for Financing</DialogTitle>
+            <DialogDescription>
+              Submit a financing application for this auto part
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedPartForFinancing && (
+            <div className="space-y-6">
+              {/* Part Details */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-lg mb-2">Part Details</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium">Title:</span> {selectedPartForFinancing.title}
+                  </div>
+                  <div>
+                    <span className="font-medium">Price:</span> ${selectedPartForFinancing.price.toFixed(2)}
+                  </div>
+                  <div>
+                    <span className="font-medium">Vehicle:</span> {selectedPartForFinancing.year} {selectedPartForFinancing.make} {selectedPartForFinancing.model}
+                  </div>
+                  <div>
+                    <span className="font-medium">Condition:</span> {getConditionLabel(selectedPartForFinancing.condition)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Financing Options */}
+              <div>
+                <Label htmlFor="financing-option">Select Financing Option *</Label>
+                {isLoadingFinancingOptions ? (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                    <p className="text-sm text-gray-500">Loading financing options...</p>
+                  </div>
+                ) : financingOptions.length === 0 ? (
+                  <Alert>
+                    <AlertDescription>
+                      No financing options are currently available. Please try again later.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Select 
+                    value={selectedFinancingOption?.toString() || ''} 
+                    onValueChange={(value: string) => setSelectedFinancingOption(parseInt(value))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a financing option" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {financingOptions.map((option: FinancingOption) => (
+                        <SelectItem key={option.id} value={option.id.toString()}>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{option.name}</span>
+                            <span className="text-sm text-gray-500">
+                              {option.interest_rate}% APR • {option.term_months} months • 
+                              ${option.min_amount.toFixed(0)}-${option.max_amount.toFixed(0)}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {/* Selected Option Details */}
+              {selectedFinancingOption && (
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  {(() => {
+                    const option = financingOptions.find((opt: FinancingOption) => opt.id === selectedFinancingOption);
+                    return option ? (
+                      <div>
+                        <h4 className="font-semibold text-blue-900 mb-2">{option.name}</h4>
+                        <p className="text-blue-800 text-sm mb-3">{option.description}</p>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <span className="font-medium">Interest Rate:</span> {option.interest_rate}% APR
+                          </div>
+                          <div>
+                            <span className="font-medium">Term:</span> {option.term_months} months
+                          </div>
+                          <div>
+                            <span className="font-medium">Min Amount:</span> ${option.min_amount.toFixed(2)}
+                          </div>
+                          <div>
+                            <span className="font-medium">Max Amount:</span> ${option.max_amount.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+
+              {/* Requested Amount */}
+              <div>
+                <Label htmlFor="requested-amount">Requested Amount *</Label>
+                <Input
+                  id="requested-amount"
+                  type="number"
+                  placeholder="Enter requested amount"
+                  value={requestedAmount}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRequestedAmount(e.target.value)}
+                  min="0"
+                  step="0.01"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Pre-filled with part price (${selectedPartForFinancing.price.toFixed(2)}), but you can adjust as needed
+                </p>
+              </div>
+
+              {/* Application Data */}
+              <div>
+                <Label htmlFor="application-data">Financial Information *</Label>
+                <Textarea
+                  id="application-data"
+                  placeholder="Please provide your financial details in JSON format, for example:
+{
+  &quot;annual_income&quot;: 50000,
+  &quot;credit_score&quot;: 720,
+  &quot;employment_status&quot;: &quot;employed&quot;,
+  &quot;monthly_expenses&quot;: 2500,
+  &quot;existing_debt&quot;: 15000,
+  &quot;years_at_current_job&quot;: 3
+}"
+                  value={applicationData}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setApplicationData(e.target.value)}
+                  rows={8}
+                  className="font-mono text-sm"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Please provide accurate financial information in JSON format. This will be reviewed by the financing provider.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4">
+                <Button 
+                  onClick={handleFinancingApplication}
+                  disabled={
+                    isSubmittingFinancingApplication || 
+                    !selectedFinancingOption || 
+                    !requestedAmount || 
+                    !applicationData.trim()
+                  }
+                  className="flex-1"
+                >
+                  {isSubmittingFinancingApplication ? 'Submitting...' : 'Submit Application'}
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={resetFinancingModal}
+                  disabled={isSubmittingFinancingApplication}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
