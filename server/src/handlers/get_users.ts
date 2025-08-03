@@ -1,8 +1,18 @@
 
+import { db } from '../db';
+import { usersTable } from '../db/schema';
 import { type User } from '../schema';
 
-export async function getUsers(): Promise<User[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is fetching all users from the database.
-    return [];
-}
+export const getUsers = async (): Promise<User[]> => {
+  try {
+    const results = await db.select()
+      .from(usersTable)
+      .execute();
+
+    // Return users - no numeric conversion needed for users table
+    return results;
+  } catch (error) {
+    console.error('Failed to fetch users:', error);
+    throw error;
+  }
+};

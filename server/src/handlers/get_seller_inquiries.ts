@@ -1,8 +1,19 @@
 
+import { db } from '../db';
+import { buyerInquiriesTable } from '../db/schema';
 import { type BuyerInquiry } from '../schema';
+import { eq } from 'drizzle-orm';
 
 export async function getSellerInquiries(sellerId: number): Promise<BuyerInquiry[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is fetching all inquiries received by a specific seller from the database.
-    return [];
+  try {
+    const results = await db.select()
+      .from(buyerInquiriesTable)
+      .where(eq(buyerInquiriesTable.seller_id, sellerId))
+      .execute();
+
+    return results;
+  } catch (error) {
+    console.error('Failed to fetch seller inquiries:', error);
+    throw error;
+  }
 }

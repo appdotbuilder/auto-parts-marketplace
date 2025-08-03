@@ -1,17 +1,28 @@
 
+import { db } from '../db';
+import { buyerInquiriesTable } from '../db/schema';
 import { type UpdateInquiryStatusInput, type BuyerInquiry } from '../schema';
+import { eq } from 'drizzle-orm';
 
-export async function updateInquiryStatus(input: UpdateInquiryStatusInput): Promise<BuyerInquiry> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is updating the status of a buyer inquiry in the database.
-    return Promise.resolve({
-        id: input.id,
-        buyer_id: 0, // Would be fetched from existing record
-        seller_id: 0, // Would be fetched from existing record
-        part_id: 0, // Would be fetched from existing record
-        message: 'Placeholder message',
+export const updateInquiryStatus = async (input: UpdateInquiryStatusInput): Promise<BuyerInquiry> => {
+  try {
+    // Update the inquiry status
+    const result = await db.update(buyerInquiriesTable)
+      .set({ 
         status: input.status,
-        created_at: new Date(),
         updated_at: new Date()
-    } as BuyerInquiry);
-}
+      })
+      .where(eq(buyerInquiriesTable.id, input.id))
+      .returning()
+      .execute();
+
+    if (result.length === 0) {
+      throw new Error(`Inquiry with id ${input.id} not found`);
+    }
+
+    return result[0];
+  } catch (error) {
+    console.error('Inquiry status update failed:', error);
+    throw error;
+  }
+};

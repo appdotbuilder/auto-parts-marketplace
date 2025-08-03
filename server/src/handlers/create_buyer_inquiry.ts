@@ -1,18 +1,38 @@
 
+import { db } from '../db';
+import { buyerInquiriesTable, autoPartsTable } from '../db/schema';
 import { type CreateBuyerInquiryInput, type BuyerInquiry } from '../schema';
+import { eq } from 'drizzle-orm';
 
-export async function createBuyerInquiry(input: CreateBuyerInquiryInput): Promise<BuyerInquiry> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is creating a new buyer inquiry and persisting it in the database.
-    // It should also determine the seller_id from the part_id.
-    return Promise.resolve({
-        id: 0, // Placeholder ID
+export const createBuyerInquiry = async (input: CreateBuyerInquiryInput): Promise<BuyerInquiry> => {
+  try {
+    // First, get the seller_id from the auto part
+    const autoParts = await db.select({ seller_id: autoPartsTable.seller_id })
+      .from(autoPartsTable)
+      .where(eq(autoPartsTable.id, input.part_id))
+      .execute();
+
+    if (autoParts.length === 0) {
+      throw new Error(`Auto part with id ${input.part_id} not found`);
+    }
+
+    const seller_id = autoParts[0].seller_id;
+
+    // Insert buyer inquiry record
+    const result = await db.insert(buyerInquiriesTable)
+      .values({
         buyer_id: input.buyer_id,
-        seller_id: 0, // Should be fetched from the auto part's seller_id
+        seller_id: seller_id,
         part_id: input.part_id,
         message: input.message,
-        status: 'pending',
-        created_at: new Date(),
-        updated_at: new Date()
-    } as BuyerInquiry);
-}
+        status: 'pending' // Default status
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Buyer inquiry creation failed:', error);
+    throw error;
+  }
+};
